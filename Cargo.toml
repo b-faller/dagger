@@ -11,4 +11,5 @@ chrono = { version = "0.4", default-features = false, features = ["serde"] }
 mailparse = "0.14"
 serde = { version = "1", features = [ "derive" ] }
 serde-xml-rs = "0.6"
+tabled = { version = "0.12", default-features = false, features = [ "std" ] }
 zip = { version = "0.6.6", default-features = false, features = [ "deflate" ] }

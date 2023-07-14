@@ -11,6 +11,7 @@ use mailparse::ParsedMail;
 use zip::ZipArchive;
 
 mod dmarc;
+mod ui;
 
 use dmarc::Feedback;
 
@@ -31,7 +32,6 @@ impl std::error::Error for Error {}
 
 /// Extracts the XML file contained in the ZIP attachment of the provided email part.
 fn extract_xml_from_zip(part: &ParsedMail) -> Result<String, Box<dyn std::error::Error>> {
-    println!("{}", part.ctype.mimetype);
     let body = part.get_body_raw()?;
     let cursor = Cursor::new(body.as_slice());
     let mut archive = ZipArchive::new(cursor)?;
@@ -39,12 +39,6 @@ fn extract_xml_from_zip(part: &ParsedMail) -> Result<String, Box<dyn std::error:
     let mut xml = String::new();
     xml_file.read_to_string(&mut xml)?;
     Ok(xml)
-}
-
-fn parse_report(xml: String) -> Result<Feedback, Box<dyn std::error::Error>> {
-    println!("{}", xml);
-    let feedback = serde_xml_rs::from_str(&xml)?;
-    Ok(feedback)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,12 +61,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or(Error::MissingSubject)?;
         println!("Processing email with subject '{subject}'");
 
-        for part in parsed_mail.parts() {
-            if part.ctype.mimetype == "application/zip" {
+        let zip_part = parsed_mail
+            .parts()
+            .find(|part| part.ctype.mimetype == "application/zip");
+        match zip_part {
+            Some(part) => {
                 let xml = extract_xml_from_zip(part)?;
-                let report = parse_report(xml);
-                println!("{:?}", report);
+                let feedback: Feedback = serde_xml_rs::from_str(&xml)?;
+                println!("{}", feedback);
             }
+            None => eprintln!("Email does not contain a zipped report"),
         }
     }
 
