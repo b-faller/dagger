@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path)?;
 
     // Not conformant to RFC4155
+    let mut feedbacks = vec![];
     let emails = content.split("From ");
     for email in emails.skip(1) {
         let parsed_mail = parse_mail(email.as_bytes())?;
@@ -60,7 +61,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .get_first_value("Subject")
             .ok_or(Error::MissingSubject)?;
         println!("Processing email with subject '{subject}'");
-
         let zip_part = parsed_mail
             .parts()
             .find(|part| part.ctype.mimetype == "application/zip");
@@ -68,11 +68,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(part) => {
                 let xml = extract_xml_from_zip(part)?;
                 let feedback: Feedback = serde_xml_rs::from_str(&xml)?;
-                println!("{}", feedback);
+                feedbacks.push(feedback);
             }
             None => eprintln!("Email does not contain a zipped report"),
         }
     }
+
+    // Sort and dedup feedbacks
+    feedbacks.sort_by_key(|feedback| feedback.report_metadata.date_range.begin);
+    feedbacks.dedup_by(|a, b| a.report_metadata.report_id == b.report_metadata.report_id);
+
+    // Print each feedback
+    feedbacks.iter().for_each(|feedback| println!("{feedback}"));
 
     Ok(())
 }
