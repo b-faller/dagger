@@ -3,6 +3,7 @@ use std::fmt;
 use std::fs;
 use std::io::Cursor;
 use std::io::Read;
+use std::path::Path;
 use std::path::PathBuf;
 
 use mailparse::parse_mail;
@@ -14,6 +15,8 @@ mod dmarc;
 mod ui;
 
 use dmarc::Feedback;
+
+use crate::dmarc::Record;
 
 #[derive(Debug)]
 enum Error {
@@ -41,16 +44,8 @@ fn extract_xml_from_zip(part: &ParsedMail) -> Result<String, Box<dyn std::error:
     Ok(xml)
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage `dagger mbox_path`");
-        return Ok(());
-    }
-
-    let path = PathBuf::from(&args[1]);
+fn get_feedbacks_from_mbox(path: &Path) -> Result<Vec<Feedback>, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path)?;
-
     // Not conformant to RFC4155
     let mut feedbacks = vec![];
     let emails = content.split("From ");
@@ -73,13 +68,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None => eprintln!("Email does not contain a zipped report"),
         }
     }
+    Ok(feedbacks)
+}
+
+fn run_list(feedbacks: Vec<Feedback>) {
+    // Print each feedback
+    for feedback in feedbacks {
+        println!("{feedback}");
+    }
+}
+fn run_aggregate(feedbacks: Vec<Feedback>) {
+    if feedbacks.is_empty() {
+        return;
+    }
+
+    let begin = feedbacks
+        .iter()
+        .map(|f| f.report_metadata.date_range.begin)
+        .min()
+        .unwrap();
+    let end = feedbacks
+        .iter()
+        .map(|f| f.report_metadata.date_range.end)
+        .max()
+        .unwrap();
+    println!(" Aggregate Report Details");
+    println!("--------------------------");
+    println!("Timeframe: {} to {}", begin, end);
+    println!();
+
+    let records: Vec<Record> = feedbacks.into_iter().flat_map(|f| f.records).collect();
+    let table = ui::build_records_table(&records);
+    println!("{table}");
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        println!("Usage `dagger mbox_path [--aggregate]`");
+        return Ok(());
+    }
+
+    // Gather feedback
+    let path = PathBuf::from(&args[1]);
+    let mut feedbacks = get_feedbacks_from_mbox(&path)?;
 
     // Sort and dedup feedbacks
     feedbacks.sort_by_key(|feedback| feedback.report_metadata.date_range.begin);
     feedbacks.dedup_by(|a, b| a.report_metadata.report_id == b.report_metadata.report_id);
 
-    // Print each feedback
-    feedbacks.iter().for_each(|feedback| println!("{feedback}"));
+    match args.get(2).map(|s| s.as_str()) {
+        Some("--aggregate") => run_aggregate(feedbacks),
+        Some(arg) => eprintln!("Invalid argument '{arg}'"),
+        None => run_list(feedbacks),
+    };
 
     Ok(())
 }
