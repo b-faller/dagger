@@ -1,8 +1,13 @@
 use std::fmt::Display;
 
-use tabled::{builder::Builder, settings::Style};
+use tabled::{
+    builder::Builder,
+    settings::{Color, Modify, Style},
+};
 
-use crate::dmarc::{DateRange, DkimAuthResult, Feedback, PolicyOverrideReason, SpfAuthResult};
+use crate::dmarc::{
+    DateRange, DkimAuthResult, DmarcResult, Feedback, PolicyOverrideReason, SpfAuthResult,
+};
 
 impl Display for DateRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -137,8 +142,25 @@ impl Display for Feedback {
 
         let mut table = builder.build();
         table.with(Style::psql());
+
+        // Highlight cells
+        for (i, r) in self.records.iter().enumerate() {
+            let dkim_alignement = get_dmarc_color(&r.row.policy_evaluated.dkim);
+            table.with(Modify::new((i + 1, 5)).with(dkim_alignement));
+            let spf_alignement = get_dmarc_color(&r.row.policy_evaluated.spf);
+            table.with(Modify::new((i + 1, 6)).with(spf_alignement));
+        }
+
+        // Print table
         writeln!(f, "{}", table)?;
 
         Ok(())
+    }
+}
+
+fn get_dmarc_color(result: &DmarcResult) -> Color {
+    match result {
+        DmarcResult::Pass => Color::FG_BRIGHT_GREEN,
+        DmarcResult::Fail => Color::FG_BRIGHT_RED,
     }
 }
