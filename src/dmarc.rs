@@ -1,5 +1,7 @@
 use std::net::IpAddr;
 
+use chrono::serde::ts_seconds;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -12,8 +14,10 @@ pub struct Feedback {
 /// The time range in UTC covered by messages in this report, specified in seconds since epoch.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct DateRange {
-    begin: i32,
-    end: i32,
+    #[serde(with = "ts_seconds")]
+    begin: DateTime<Utc>,
+    #[serde(with = "ts_seconds")]
+    end: DateTime<Utc>,
 }
 
 /// Report generator metadata.
