@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Feedback {
+    /// Version is optional since not included in Google report.
+    version: Option<f32>,
     report_metadata: ReportMetadata,
     policy_published: PolicyPublished,
     record: Vec<Record>,
@@ -43,7 +45,7 @@ enum Alignment {
 
 /// The policy actions specified by p and sp in the DMARC record.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 enum Disposition {
     None,
     Quarantine,
@@ -64,7 +66,7 @@ struct PolicyPublished {
     /// The policy to apply to messages from subdomains.
     sp: Disposition,
     /// The percent of messages to which policy applies.
-    pct: i32,
+    pct: u8,
     /// Failure reporting options in effect.
     ///
     /// This is made optional since the Google report does not include this field.
@@ -124,14 +126,17 @@ struct Identifier {
     /// The envelope recipient domain.
     envelope_to: Option<String>,
     /// The RFC5321.MailFrom domain.
+    ///
+    /// Also made optional since Google reports don't include it.
     envelope_from: Option<String>,
     /// The RFC5322.From domain.
     header_from: String,
 }
 
+/// DKIM verification result, according to RFC 7001 Section 2.6.1.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-enum DKIMResult {
+#[serde(rename_all = "snake_case")]
+enum DkimResult {
     None,
     Pass,
     Fail,
@@ -142,20 +147,20 @@ enum DKIMResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct DKIMAuthResult {
+struct DkimAuthResult {
     /// The "d=" parameter in the signature.
-    d: Option<String>,
+    domain: String,
     /// The "s=" parameter in the signature.
-    s: Option<String>,
+    selector: Option<String>,
     /// The DKIM verification result.
-    result: DKIMResult,
+    result: DkimResult,
     /// Any extra information (e.g., from Authentication-Results).
     human_result: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-enum SPFDomainScope {
+enum SpfDomainScope {
     Helo,
     MFrom,
 }
@@ -163,7 +168,7 @@ enum SPFDomainScope {
 /// DKIM verification result, according to RFC 7001 Section 2.6.1.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-enum SPFResult {
+enum SpfResult {
     None,
     Neutral,
     Pass,
@@ -176,13 +181,15 @@ enum SPFResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-struct SPFAuthResult {
+struct SpfAuthResult {
     /// The checked domain.
     domain: String,
     /// The scope of the checked domain.
-    scope: Option<SPFDomainScope>,
+    ///
+    /// Also made optional.
+    scope: Option<SpfDomainScope>,
     /// The SPF verification result.
-    result: SPFResult,
+    result: SpfResult,
 }
 
 /// This element contains DKIM and SPF results, uninterpreted with respect to DMARC.
@@ -190,9 +197,9 @@ struct SPFAuthResult {
 struct AuthResult {
     /// There may be no DKIM signatures, or multiple DKIM signatures.
     #[serde(default = "Default::default")]
-    dkim: Vec<DKIMAuthResult>,
+    dkim: Vec<DkimAuthResult>,
     /// There will always be at least one SPF result.
-    spf: Vec<SPFAuthResult>,
+    spf: Vec<SpfAuthResult>,
 }
 
 /// This element contains all the authentication results that were evaluated by the receiving system for the given set of messages.
@@ -201,4 +208,17 @@ struct Record {
     row: Row,
     identifiers: Identifier,
     auth_results: AuthResult,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SpfDomainScope;
+
+    #[test]
+    fn deserialize_spf_domain_scope() {
+        let scope: SpfDomainScope = serde_xml_rs::from_str("<mfrom></mfrom>").unwrap();
+        assert_eq!(scope, SpfDomainScope::MFrom);
+        let scope: SpfDomainScope = serde_xml_rs::from_str("<helo></helo>").unwrap();
+        assert_eq!(scope, SpfDomainScope::Helo);
+    }
 }
