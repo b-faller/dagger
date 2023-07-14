@@ -3,6 +3,7 @@ use std::fmt;
 use std::fs;
 use std::io::Cursor;
 use std::io::Read;
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use mailparse::parse_mail;
@@ -81,6 +82,64 @@ struct PolicyPublished {
     fo: Option<String>,
 }
 
+/// The DMARC-aligned authentication result.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum DmarcResult {
+    Pass,
+    Fail,
+}
+
+/// Reasons that may affect DMARC disposition or execution thereof.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum PolicyOverride {
+    Forwarded,
+    SampledOut,
+    TrustedForwarder,
+    MailingList,
+    LocalPolicy,
+    Other,
+}
+
+/// How do we allow report generators to include new classes of override reasons if they want to be more specific than "other"?
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct PolicyOverrideReason {
+    #[serde(rename = "type")]
+    typ: PolicyOverride,
+    comment: Option<String>,
+}
+
+/// Taking into account everything else in the record, the results of applying DMARC.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct PolicyEvaluated {
+    disposition: Disposition,
+    dkim: DmarcResult,
+    spf: DmarcResult,
+    #[serde(default = "Default::default")]
+    reason: Vec<PolicyOverrideReason>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Row {
+    /// The connecting IP.
+    source_ip: IpAddr,
+    /// The number of matching messages.
+    count: u32,
+    /// The DMARC disposition applying to matching messages.
+    policy_evaluated: PolicyEvaluated,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Identifier {
+    /// The envelope recipient domain.
+    envelope_to: Option<String>,
+    /// The RFC5321.MailFrom domain.
+    envelope_from: Option<String>,
+    /// The RFC5322.From domain.
+    header_from: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum DKIMResult {
@@ -150,8 +209,8 @@ struct AuthResult {
 /// This element contains all the authentication results that were evaluated by the receiving system for the given set of messages.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct Record {
-    // row: Row,
-    // identifiers: Identifier,
+    row: Row,
+    identifiers: Identifier,
     auth_results: AuthResult,
 }
 
