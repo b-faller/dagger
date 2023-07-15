@@ -1,6 +1,6 @@
 [package]
 name = "dagger"
-description = "DMARK Aggregate E-Mail Report"
+description = "DMARC Aggregate Email Report"
 version = "0.1.0"
 edition = "2021"
 
