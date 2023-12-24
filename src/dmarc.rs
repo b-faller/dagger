@@ -2,13 +2,15 @@ use std::net::IpAddr;
 
 use chrono::serde::ts_seconds;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Feedback {
     /// Version is optional since not included in Google report.
     pub version: Option<f32>,
     pub report_metadata: ReportMetadata,
+    /// Deserialized via a wrapper struct to facilitate more lenient parsing than the specification mandates.
+    #[serde(deserialize_with = "PolicyPublished::deserialize_from_wrapper")]
     pub policy_published: PolicyPublished,
     #[serde(rename = "record")]
     pub records: Vec<Record>,
@@ -30,8 +32,10 @@ pub struct ReportMetadata {
     pub email: String,
     pub extra_contact_info: Option<String>,
     pub report_id: String,
+    /// Alias set for some reports that misspell the field.
+    #[serde(alias = "data_range")]
     pub date_range: DateRange,
-    #[serde(rename = "error", default = "Default::default")]
+    #[serde(default, rename = "error")]
     pub errors: Vec<String>,
 }
 
@@ -45,7 +49,7 @@ pub enum Alignment {
 }
 
 /// The policy actions specified by p and sp in the DMARC record.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum Disposition {
     None,
@@ -69,7 +73,46 @@ pub struct PolicyPublished {
     /// The percent of messages to which policy applies.
     pub pct: u8,
     /// Failure reporting options in effect.
-    ///
+    pub fo: String,
+}
+
+impl From<PolicyPublishedWrapper> for PolicyPublished {
+    fn from(value: PolicyPublishedWrapper) -> Self {
+        // If sp is not set, it inherits from p
+        let sp = value.sp.unwrap_or(value.p);
+        let fo = value.fo.clone().unwrap_or_default();
+        Self {
+            domain: value.domain,
+            adkim: value.adkim,
+            aspf: value.aspf,
+            p: value.p,
+            sp,
+            pct: value.pct,
+            fo,
+        }
+    }
+}
+
+impl PolicyPublished {
+    pub fn deserialize_from_wrapper<'de, D>(deserializer: D) -> Result<PolicyPublished, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wrapper = PolicyPublishedWrapper::deserialize(deserializer)?;
+        Ok(wrapper.into())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PolicyPublishedWrapper {
+    pub domain: String,
+    pub adkim: Option<Alignment>,
+    pub aspf: Option<Alignment>,
+    pub p: Disposition,
+    /// This is made optional since some reports treat this as optional due to it being inheritive of `p`.
+    #[serde(rename = "$text")]
+    pub sp: Option<Disposition>,
+    pub pct: u8,
     /// This is made optional since the Google report does not include this field.
     pub fo: Option<String>,
 }
@@ -94,10 +137,16 @@ pub enum PolicyOverride {
     Other,
 }
 
+impl Default for PolicyOverride {
+    fn default() -> Self {
+        Self::Other
+    }
+}
+
 /// How do we allow report generators to include new classes of override reasons if they want to be more specific than "other"?
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct PolicyOverrideReason {
-    #[serde(rename = "type")]
+    #[serde(default, rename = "type$text")]
     pub typ: PolicyOverride,
     pub comment: Option<String>,
 }
@@ -108,7 +157,7 @@ pub struct PolicyEvaluated {
     pub disposition: Disposition,
     pub dkim: DmarcResult,
     pub spf: DmarcResult,
-    #[serde(rename = "reason", default = "Default::default")]
+    #[serde(default, rename = "reason")]
     pub reasons: Vec<PolicyOverrideReason>,
 }
 
@@ -197,7 +246,7 @@ pub struct SpfAuthResult {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct AuthResult {
     /// There may be no DKIM signatures, or multiple DKIM signatures.
-    #[serde(default = "Default::default")]
+    #[serde(default)]
     pub dkim: Vec<DkimAuthResult>,
     /// There will always be at least one SPF result.
     pub spf: Vec<SpfAuthResult>,
@@ -213,13 +262,50 @@ pub struct Record {
 
 #[cfg(test)]
 mod tests {
+    use quick_xml::de::from_str;
+
+    use crate::dmarc::{PolicyOverride, PolicyOverrideReason};
+
     use super::SpfDomainScope;
 
     #[test]
     fn deserialize_spf_domain_scope() {
-        let scope: SpfDomainScope = serde_xml_rs::from_str("<mfrom></mfrom>").unwrap();
+        let scope: SpfDomainScope = from_str("<mfrom></mfrom>").unwrap();
         assert_eq!(scope, SpfDomainScope::MFrom);
-        let scope: SpfDomainScope = serde_xml_rs::from_str("<helo></helo>").unwrap();
+        let scope: SpfDomainScope = from_str("<helo></helo>").unwrap();
         assert_eq!(scope, SpfDomainScope::Helo);
+    }
+
+    #[test]
+    fn deserialize_policy_override_reason() {
+        let xml = "<reason> <type></type> <comment></comment> </reason>";
+        let por: PolicyOverrideReason = from_str(xml).unwrap();
+        assert_eq!(
+            por,
+            PolicyOverrideReason {
+                typ: PolicyOverride::Other,
+                comment: Some("".into())
+            }
+        );
+
+        let xml = "<reason> <type>other</type> <comment>some text</comment> </reason>";
+        let por: PolicyOverrideReason = from_str(xml).unwrap();
+        assert_eq!(
+            por,
+            PolicyOverrideReason {
+                typ: PolicyOverride::Other,
+                comment: Some("some text".into())
+            }
+        );
+
+        let xml = "<reason> <type>forwarded</type> </reason>";
+        let por: PolicyOverrideReason = from_str(xml).unwrap();
+        assert_eq!(
+            por,
+            PolicyOverrideReason {
+                typ: PolicyOverride::Other,
+                comment: None
+            }
+        );
     }
 }

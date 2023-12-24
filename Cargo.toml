@@ -8,8 +8,9 @@ edition = "2021"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["serde"] }
+flate2 = "1"
 mailparse = "0.14"
+quick-xml = { version = "0.31", default-features = false, features = [ "serialize" ] }
 serde = { version = "1", features = [ "derive" ] }
-serde-xml-rs = "0.6"
 tabled = { version = "0.12", default-features = false, features = [ "std" ] }
 zip = { version = "0.6.6", default-features = false, features = [ "deflate" ] }

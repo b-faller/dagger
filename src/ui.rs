@@ -81,8 +81,8 @@ impl Display for Feedback {
             writeln!(f, "SPF alignment: {:?}", aspf)?;
         }
         writeln!(f, "Percentage: {}", self.policy_published.pct)?;
-        if let Some(failure_options) = &self.policy_published.fo {
-            writeln!(f, "Failure options: {:?}", failure_options)?;
+        if !&self.policy_published.fo.is_empty() {
+            writeln!(f, "Failure options: {:?}", self.policy_published.fo)?;
         }
         writeln!(f)?;
 

@@ -17,6 +17,7 @@ mod dmarc;
 mod ui;
 
 use dmarc::Feedback;
+use flate2::bufread::GzDecoder;
 use zip::result::ZipError;
 
 use crate::dmarc::Record;
@@ -25,10 +26,12 @@ use crate::dmarc::Record;
 enum Error {
     MissingSubject,
     ParseMail(MailParseError),
-    ExtractZip(ZipError),
+    NoSupportedAttachmentFound,
+    ReadZipArchive(ZipError),
     ReadXmlFromZip(io::Error),
+    ReadXmlFromGzip(io::Error),
     ReadMboxFile(PathBuf, io::Error),
-    ParseDmarcReport(serde_xml_rs::Error),
+    ParseDmarcReport(quick_xml::de::DeError),
 }
 
 impl fmt::Display for Error {
@@ -36,9 +39,13 @@ impl fmt::Display for Error {
         match self {
             Error::MissingSubject => write!(f, "Could not parse subject from email"),
             Error::ParseMail(e) => write!(f, "Could not parse email in mbox file: {e}"),
-            Error::ExtractZip(e) => write!(f, "Failed to extract ZIP file from email: {e}"),
+            Error::NoSupportedAttachmentFound => write!(f, "No supported attachement found"),
+            Error::ReadZipArchive(e) => write!(f, "Failed to extract ZIP file from email: {e}"),
             Error::ReadXmlFromZip(e) => {
                 write!(f, "Unable to extract XML report from ZIP file: {e}")
+            }
+            Error::ReadXmlFromGzip(e) => {
+                write!(f, "Unable to extract XML report from GZIP file: {e}")
             }
             Error::ReadMboxFile(path, e) => {
                 write!(f, "Could not read mbox file '{}': {}", path.display(), e)
@@ -51,23 +58,49 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// Extracts the XML file contained in the ZIP attachment of the provided email part.
-fn extract_xml_from_zip(part: &ParsedMail) -> Result<String, Error> {
+fn decompress_zip(part: &ParsedMail) -> Result<String, Error> {
     let body = part.get_body_raw().map_err(Error::ParseMail)?;
     let cursor = Cursor::new(body.as_slice());
-    let mut archive = ZipArchive::new(cursor).map_err(Error::ExtractZip)?;
-    let mut xml_file = archive.by_index(0).map_err(Error::ExtractZip)?;
+    let mut archive = ZipArchive::new(cursor).map_err(Error::ReadZipArchive)?;
+    let mut zip_file = archive.by_index(0).map_err(Error::ReadZipArchive)?;
     let mut xml = String::new();
-    xml_file
+    zip_file
         .read_to_string(&mut xml)
         .map_err(Error::ReadXmlFromZip)?;
     Ok(xml)
 }
 
+/// Extracts the XML file contained in the GZIP attachment of the provided email part.
+fn decompress_gzip(part: &ParsedMail) -> Result<String, Error> {
+    let body = part.get_body_raw().map_err(Error::ParseMail)?;
+    let cursor = Cursor::new(body.as_slice());
+    let mut decoder = GzDecoder::new(cursor);
+    let mut xml = String::new();
+    decoder
+        .read_to_string(&mut xml)
+        .map_err(Error::ReadXmlFromGzip)?;
+    Ok(xml)
+}
+
+fn process_email(parsed_mail: ParsedMail) -> Result<Feedback, Error> {
+    let xml = parsed_mail
+        .parts()
+        .find_map(|part| match part.ctype.mimetype.as_str() {
+            "application/zip" => Some(decompress_zip(part)),
+            "application/gzip" => Some(decompress_gzip(part)),
+            _ => None,
+        })
+        .ok_or(Error::NoSupportedAttachmentFound)??;
+    println!("{}", xml);
+    let feedback = quick_xml::de::from_str(&xml).map_err(Error::ParseDmarcReport)?;
+    Ok(feedback)
+}
+
 fn get_feedbacks_from_mbox(path: &Path) -> Result<Vec<Feedback>, Error> {
-    let content = fs::read_to_string(path).map_err(|e| Error::ReadMboxFile(path.into(), e))?;
-    // Not conformant to RFC4155
+    let mbox = fs::read_to_string(path).map_err(|e| Error::ReadMboxFile(path.into(), e))?;
     let mut feedbacks = vec![];
-    let emails = content.split("From ");
+    // Not conformant to RFC4155
+    let emails = mbox.split("From ");
     for email in emails.skip(1) {
         let parsed_mail = parse_mail(email.as_bytes()).map_err(Error::ParseMail)?;
         let subject = parsed_mail
@@ -75,28 +108,22 @@ fn get_feedbacks_from_mbox(path: &Path) -> Result<Vec<Feedback>, Error> {
             .get_first_value("Subject")
             .ok_or(Error::MissingSubject)?;
         println!("Processing email with subject '{subject}'");
-        let zip_part = parsed_mail
-            .parts()
-            .find(|part| part.ctype.mimetype == "application/zip");
-        match zip_part {
-            Some(part) => {
-                let xml = extract_xml_from_zip(part)?;
-                let feedback: Feedback =
-                    serde_xml_rs::from_str(&xml).map_err(Error::ParseDmarcReport)?;
-                feedbacks.push(feedback);
-            }
-            None => eprintln!("Email does not contain a zipped report"),
+        match process_email(parsed_mail) {
+            Ok(feedback) => feedbacks.push(feedback),
+            Err(e) => eprintln!("Error processing email with subject '{subject}': {e}"),
         }
     }
     Ok(feedbacks)
 }
 
+/// Print each feedback.
 fn run_list(feedbacks: Vec<Feedback>) {
-    // Print each feedback
     for feedback in feedbacks {
         println!("{feedback}");
     }
 }
+
+/// Aggregate and print feedback.
 fn run_aggregate(feedbacks: Vec<Feedback>) {
     if feedbacks.is_empty() {
         return;
