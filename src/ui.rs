@@ -101,8 +101,8 @@ fn get_dmarc_color(result: &DmarcResult) -> Color {
 }
 
 pub fn build_records_table(records: &[Record]) -> Table {
-    let mut builder = Builder::default();
-    builder.set_header([
+    let mut builder = Builder::new();
+    builder.push_record([
         "From domain",
         "IP address",
         "Count",

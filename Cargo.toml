@@ -12,5 +12,5 @@ flate2 = "1"
 mailparse = "0.14"
 quick-xml = { version = "0.31", default-features = false, features = [ "serialize" ] }
 serde = { version = "1", features = [ "derive" ] }
-tabled = { version = "0.12", default-features = false, features = [ "std" ] }
+tabled = { version = "0.15", default-features = false, features = [ "std" ] }
 zip = { version = "0.6.6", default-features = false, features = [ "deflate" ] }
