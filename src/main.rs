@@ -102,7 +102,7 @@ fn get_feedbacks_from_mbox(path: &Path) -> Result<Vec<Feedback>, Error> {
     // Not conformant to RFC4155
     let emails = mbox.split("From ");
     for email in emails.skip(1) {
-        let parsed_mail = parse_mail(email.as_bytes()).map_err(Error::ParseMail)?;
+        let parsed_mail = parse_mail(email.trim().as_bytes()).map_err(Error::ParseMail)?;
         let subject = parsed_mail
             .get_headers()
             .get_first_value("Subject")

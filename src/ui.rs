@@ -104,6 +104,7 @@ pub fn build_records_table(records: &[Record]) -> Table {
     let mut builder = Builder::new();
     builder.push_record([
         "From domain",
+        "Envelope",
         "IP address",
         "Count",
         "Disposition",
@@ -116,6 +117,17 @@ pub fn build_records_table(records: &[Record]) -> Table {
 
     for r in records {
         let header_from = &r.identifiers.header_from;
+        let envelope = format!(
+            "{}->{}",
+            r.identifiers
+                .envelope_from
+                .as_ref()
+                .unwrap_or(&"?".to_string()),
+            r.identifiers
+                .envelope_to
+                .as_ref()
+                .unwrap_or(&"?".to_string())
+        );
         let source_ip = r.row.source_ip;
         let count = r.row.count;
         let disposition = format!("{:?}", r.row.policy_evaluated.disposition);
@@ -145,6 +157,7 @@ pub fn build_records_table(records: &[Record]) -> Table {
             .join(", ");
         builder.push_record([
             header_from,
+            &envelope,
             &source_ip.to_string(),
             &count.to_string(),
             &disposition,
@@ -162,9 +175,9 @@ pub fn build_records_table(records: &[Record]) -> Table {
     // Highlight cells
     for (i, r) in records.iter().enumerate() {
         let dkim_alignement = get_dmarc_color(&r.row.policy_evaluated.dkim);
-        table.with(Modify::new((i + 1, 5)).with(dkim_alignement));
+        table.with(Modify::new((i + 1, 6)).with(dkim_alignement));
         let spf_alignement = get_dmarc_color(&r.row.policy_evaluated.spf);
-        table.with(Modify::new((i + 1, 6)).with(spf_alignement));
+        table.with(Modify::new((i + 1, 7)).with(spf_alignement));
     }
 
     table
