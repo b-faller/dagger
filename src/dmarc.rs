@@ -81,13 +81,14 @@ impl From<PolicyPublishedWrapper> for PolicyPublished {
         // If sp is not set, it inherits from p
         let sp = value.sp.unwrap_or(value.p);
         let fo = value.fo.clone().unwrap_or_default();
+        let pct = value.pct.unwrap_or(100);
         Self {
             domain: value.domain,
             adkim: value.adkim,
             aspf: value.aspf,
             p: value.p,
             sp,
-            pct: value.pct,
+            pct: pct,
             fo,
         }
     }
@@ -112,7 +113,7 @@ pub struct PolicyPublishedWrapper {
     /// This is made optional since some reports treat this as optional due to it being inheritive of `p`.
     #[serde(rename = "$text")]
     pub sp: Option<Disposition>,
-    pub pct: u8,
+    pub pct: Option<u8>,
     /// This is made optional since the Google report does not include this field.
     pub fo: Option<String>,
 }
