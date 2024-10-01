@@ -88,7 +88,7 @@ impl From<PolicyPublishedWrapper> for PolicyPublished {
             aspf: value.aspf,
             p: value.p,
             sp,
-            pct: pct,
+            pct,
             fo,
         }
     }
